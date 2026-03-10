@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="mavenModuleInfos">
+    <option name="maps">
+      <map>
+        <entry key="$PROJECT_DIR$/pom.xml">
+          <value>
+            <MavenModuleInfo>
+              <option name="disabled" value="true" />
+              <option name="name" value="learn-claude-code-java" />
+              <option name="pomPath" value="$PROJECT_DIR$/pom.xml" />
+            </MavenModuleInfo>
+          </value>
+        </entry>
+      </map>
+    </option>
+  </component>
+</project>
