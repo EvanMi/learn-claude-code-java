@@ -5,6 +5,7 @@ import com.alibaba.fastjson2.JSON;
 import com.anthropic.core.JsonValue;
 import com.anthropic.models.messages.ContentBlock;
 import com.anthropic.models.messages.ContentBlockParam;
+import com.anthropic.models.messages.Message;
 import com.anthropic.models.messages.MessageCreateParams;
 import com.anthropic.models.messages.MessageParam;
 import com.anthropic.models.messages.StopReason;
@@ -152,36 +153,7 @@ public class S03ToDoWrite extends Base {
             var response = client.messages().create(paramsBuilder.build());
 
 
-            // Append assistant turn
-            for (ContentBlock contentBlock : response.content()) {
-                if (contentBlock.isToolUse()) {
-                    contentBlock.toolUse().ifPresent(toolUseBlock -> {
-                        var list = new ArrayList<ContentBlockParam>();
-                        list.add(ContentBlockParam.ofToolUse(ToolUseBlockParam.builder()
-                                .id(toolUseBlock.id())
-                                .name(toolUseBlock.name())
-                                .input(ToolUseBlockParam.Input.builder()
-                                        .putAllAdditionalProperties(
-                                                Objects.requireNonNull(
-                                                        toolUseBlock._input()
-                                                                .convert(new TypeReference<Map<String, JsonValue>>() {}))
-                                        ).build())
-                                .build()));
-                        messages.add(
-                                MessageParam.builder().role(MessageParam.Role.ASSISTANT).content(MessageParam.Content.ofBlockParams(list)).build()
-                        );
-                    });
-                }
-                if (contentBlock.isText()) {
-                    contentBlock.text().ifPresent(textUseBlock -> {
-                        var list = new ArrayList<ContentBlockParam>();
-                        list.add(ContentBlockParam.ofText(TextBlockParam.builder().text(textUseBlock.text()).build()));
-                        messages.add(
-                                MessageParam.builder().role(MessageParam.Role.ASSISTANT).content(MessageParam.Content.ofBlockParams(list)).build()
-                        );
-                    });
-                }
-            }
+            addAssistants(messages, response);
 
             // If the model didn't call a tool, we're done
             if (!response.stopReason().orElse(StopReason.END_TURN).equals(StopReason.TOOL_USE)) {
@@ -224,6 +196,8 @@ public class S03ToDoWrite extends Base {
             );
         }
     }
+
+
 
     public static void main(String[] ignoredArgs) {
         var history = new ArrayList<MessageParam>();

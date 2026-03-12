@@ -50,32 +50,7 @@ public class S01AgentLoop extends Base {
 
             var response = client.messages().create(paramsBuilder.build());
 
-            // Append assistant turn
-            for (ContentBlock contentBlock : response.content()) {
-                if (contentBlock.isToolUse()) {
-                    contentBlock.toolUse().ifPresent(toolUseBlock -> messages.add(
-                            MessageParam.builder().role(MessageParam.Role.ASSISTANT).content(MessageParam.Content.ofBlockParams(
-                                    List.of(ContentBlockParam.ofToolUse(ToolUseBlockParam.builder()
-                                            .id(toolUseBlock.id())
-                                            .name(toolUseBlock.name())
-                                            .input(ToolUseBlockParam.Input.builder()
-                                                    .putAllAdditionalProperties(
-                                                            Objects.requireNonNull(
-                                                                    toolUseBlock._input()
-                                                                            .convert(new TypeReference<Map<String, JsonValue>>() {}))
-                                                    ).build())
-                                            .build()))
-                            )).build()
-                    ));
-                }
-                if (contentBlock.isText()) {
-                    contentBlock.text().ifPresent(textUseBlock -> messages.add(
-                            MessageParam.builder().role(MessageParam.Role.ASSISTANT).content(MessageParam.Content.ofBlockParams(
-                                    List.of(ContentBlockParam.ofText(TextBlockParam.builder().text(textUseBlock.text()).build()))
-                            )).build()
-                    ));
-                }
-            }
+            addAssistants(messages, response);
 
             // If the model didn't call a tool, we're done
             if (!response.stopReason().orElse(StopReason.END_TURN).equals(StopReason.TOOL_USE)) {
