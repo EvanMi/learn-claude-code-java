@@ -5,7 +5,6 @@ import com.alibaba.fastjson2.JSON;
 import com.anthropic.core.JsonValue;
 import com.anthropic.models.messages.ContentBlock;
 import com.anthropic.models.messages.ContentBlockParam;
-import com.anthropic.models.messages.Message;
 import com.anthropic.models.messages.MessageCreateParams;
 import com.anthropic.models.messages.MessageParam;
 import com.anthropic.models.messages.StopReason;
@@ -13,8 +12,6 @@ import com.anthropic.models.messages.TextBlockParam;
 import com.anthropic.models.messages.Tool;
 import com.anthropic.models.messages.ToolResultBlockParam;
 import com.anthropic.models.messages.ToolUnion;
-import com.anthropic.models.messages.ToolUseBlockParam;
-import com.fasterxml.jackson.core.type.TypeReference;
 import com.yumi.util.EnhancedBashExecutor;
 import com.yumi.util.PathUtils;
 import com.yumi.util.TodoManager;
@@ -23,8 +20,33 @@ import com.yumi.util.ToolWrapper;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 
+/**
+ * s03_todo_write.py - TodoWrite
+ *
+ * The model tracks its own progress via a TodoManager. A nag reminder
+ * forces it to keep updating when it forgets.
+ *
+ *     +----------+      +-------+      +---------+
+ *     |   User   | ---> |  LLM  | ---> | Tools   |
+ *     |  prompt  |      |       |      | + todo  |
+ *     +----------+      +---+---+      +----+----+
+ *                           ^               |
+ *                           |   tool_result |
+ *                           +---------------+
+ *                                 |
+ *                     +-----------+-----------+
+ *                     | TodoManager state     |
+ *                     | [ ] task A            |
+ *                     | [>] task B <- doing   |
+ *                     | [x] task C            |
+ *                     +-----------------------+
+ *                                 |
+ *                     if rounds_since_todo >= 3:
+ *                       inject <reminder>
+ *
+ * Key insight: "The agent can track its own progress -- and I can see it."
+ */
 public class S03ToDoWrite extends Base {
 
     private static final String SYSTEM = """

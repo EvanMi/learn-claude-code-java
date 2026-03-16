@@ -11,6 +11,7 @@ import com.anthropic.models.messages.ToolResultBlockParam;
 import com.anthropic.models.messages.ToolUnion;
 import com.yumi.util.EnhancedBashExecutor;
 import com.yumi.util.PathUtils;
+import com.yumi.util.SkillLoader;
 import com.yumi.util.ToolWrapper;
 
 import java.util.ArrayList;
@@ -18,33 +19,47 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * s02_tool_use.py - Tools
+ * s05_skill_loading.py - Skills
  *
- * The agent loop from s01 didn't change. We just added tools to the array
- * and a dispatch map to route calls.
+ * Two-layer skill injection that avoids bloating the system prompt:
  *
- *     +----------+      +-------+      +------------------+
- *     |   User   | ---> |  LLM  | ---> | Tool Dispatch    |
- *     |  prompt  |      |       |      | {                |
- *     +----------+      +---+---+      |   bash: run_bash |
- *                           ^          |   read: run_read |
- *                           |          |   write: run_wr  |
- *                           +----------+   edit: run_edit |
- *                           tool_result| }                |
- *                                      +------------------+
+ *     Layer 1 (cheap): skill names in system prompt (~100 tokens/skill)
+ *     Layer 2 (on demand): full skill body in tool_result
  *
- * Key insight: "The loop didn't change at all. I just added tools."
+ *     System prompt:
+ *     +--------------------------------------+
+ *     | You are a coding agent.              |
+ *     | Skills available:                    |
+ *     |   - git: Git workflow helpers        |  <-- Layer 1: metadata only
+ *     |   - test: Testing best practices     |
+ *     +--------------------------------------+
+ *
+ *     When model calls load_skill("git"):
+ *     +--------------------------------------+
+ *     | tool_result:                         |
+ *     | <skill>                              |
+ *     |   Full git workflow instructions...  |  <-- Layer 2: full body
+ *     |   Step 1: ...                        |
+ *     |   Step 2: ...                        |
+ *     | </skill>                             |
+ *     +--------------------------------------+
+ *
+ * Key insight: "Don't put everything in the system prompt. Load on demand."
  */
-public class S02ToolUse extends Base {
+public class S05SkillLoading extends Base {
 
-    private static final String SYSTEM = "You are a coding agent at "+ WORKDIR +". Use tools to solve tasks. Act, don't explain.";
+    private static final SkillLoader SKILL_LOADER = new SkillLoader(SKILLS_DIR);
 
+    // Layer 1: skill metadata injected into system prompt
+    private static final String SYSTEM = "You are a coding agent at " + WORKDIR + "." +
+" Use loadSkill to access specialized knowledge before tackling unfamiliar topics.\n\nSkills available:\n" + SKILL_LOADER.getDescriptions();
 
     private static final Map<String, ToolWrapper<?>> TOOL_HANDLERS = Map.of(
             "bash", new ToolWrapper<>(EnhancedBashExecutor::runBash, EnhancedBashExecutor.BashCommand.class),
             "readFile", new ToolWrapper<>(PathUtils::runRead, PathUtils.ReadCommand.class),
             "writeFile", new ToolWrapper<>(PathUtils::runWrite, PathUtils.WriteCommand.class),
-            "editFile", new ToolWrapper<>(PathUtils::runEdit, PathUtils.EditCommand.class)
+            "editFile", new ToolWrapper<>(PathUtils::runEdit, PathUtils.EditCommand.class),
+            "loadSkill", new ToolWrapper<>(SKILL_LOADER::getContent, SkillLoader.GetContentParam.class)
     );
 
     private static final List<ToolUnion> TOOLS = List.of(
@@ -107,6 +122,21 @@ public class S02ToolUse extends Base {
                                             .required(List.of("path", "oldText", "newText"))
                                             .build()
                             ).build()
+            ),
+            ToolUnion.ofTool(
+                    Tool.builder().name("loadSkill").description("Load specialized knowledge by name.")
+                            .inputSchema(
+                                    Tool.InputSchema.builder().type(JsonValue.from("object"))
+
+                                            .properties(
+                                                    Tool.InputSchema.Properties.builder()
+                                                            .putAdditionalProperty("name", JsonValue.from(Map.of("type", "string",
+                                                                    "description", "Skill name to load")))
+                                                            .build()
+                                            )
+                                            .required(List.of("name"))
+                                            .build()
+                            ).build()
             )
     );
 
@@ -151,19 +181,20 @@ public class S02ToolUse extends Base {
             }
             messages.add(
                     MessageParam.builder()
-                    .role(MessageParam.Role.USER)
-                    .content(MessageParam.Content.ofBlockParams(results))
-                    .build()
+                            .role(MessageParam.Role.USER)
+                            .content(MessageParam.Content.ofBlockParams(results))
+                            .build()
             );
         }
     }
 
     public static void main(String[] ignoredArgs) {
+        IO.println(SYSTEM);
         var history = new ArrayList<MessageParam>();
         while (true) {
             var query = "";
             try {
-                query = IO.readln("\033[36ms02 >> \033[0m").strip();
+                query = IO.readln("\033[36ms05 >> \033[0m").strip();
             } catch (Exception e) {
                 break;
             }

@@ -12,6 +12,28 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * s04_subagent.py - Subagents
+ *
+ * Spawn a child agent with fresh messages=[]. The child works in its own
+ * context, sharing the filesystem, then returns only a summary to the parent.
+ *
+ *     Parent agent                     Subagent
+ *     +------------------+             +------------------+
+ *     | messages=[...]   |             | messages=[]      |  <-- fresh
+ *     |                  |  dispatch   |                  |
+ *     | tool: task       | ---------->| while tool_use:  |
+ *     |   prompt="..."   |            |   call tools     |
+ *     |   description="" |            |   append results |
+ *     |                  |  summary   |                  |
+ *     |   result = "..." | <--------- | return last text |
+ *     +------------------+             +------------------+
+ *               |
+ *     Parent context stays clean.
+ *     Subagent context is discarded.
+ *
+ * Key insight: "Process isolation gives context isolation for free."
+ */
 public class S04Subagent extends Base {
 
     private static final String SYSTEM = "You are a coding agent at " + WORKDIR + ". Use the task tool to delegate exploration or subtasks.";

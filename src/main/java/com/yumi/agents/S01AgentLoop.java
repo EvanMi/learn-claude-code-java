@@ -6,20 +6,39 @@ import com.anthropic.models.messages.ContentBlockParam;
 import com.anthropic.models.messages.MessageCreateParams;
 import com.anthropic.models.messages.MessageParam;
 import com.anthropic.models.messages.StopReason;
-import com.anthropic.models.messages.TextBlockParam;
 import com.anthropic.models.messages.Tool;
 import com.anthropic.models.messages.ToolResultBlockParam;
 import com.anthropic.models.messages.ToolUnion;
-import com.anthropic.models.messages.ToolUseBlockParam;
-import com.fasterxml.jackson.core.type.TypeReference;
 import com.yumi.util.EnhancedBashExecutor;
 
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 
+/**
+ * s01_agent_loop.py - The Agent Loop
+ *
+ * The entire secret of an AI coding agent in one pattern:
+ *
+ *     while stop_reason == "tool_use":
+ *         response = LLM(messages, tools)
+ *         execute tools
+ *         append results
+ *
+ *     +----------+      +-------+      +---------+
+ *     |   User   | ---> |  LLM  | ---> |  Tool   |
+ *     |  prompt  |      |       |      | execute |
+ *     +----------+      +---+---+      +----+----+
+ *                           ^               |
+ *                           |   tool_result |
+ *                           +---------------+
+ *                           (loop continues)
+ *
+ * This is the core loop: feed tool results back to the model
+ * until the model decides to stop. Production agents layer
+ * policy, hooks, and lifecycle controls on top.
+ */
 public class S01AgentLoop extends Base {
 
     private static final String SYSTEM = "You are a coding agent at " + WORKDIR + ". Use bash to solve tasks. Act, don't explain.";
