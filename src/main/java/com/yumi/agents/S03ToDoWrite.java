@@ -175,8 +175,6 @@ public class S03ToDoWrite extends Base {
 
             addAssistants(messages, response);
 
-            messages.forEach(IO::println);
-
             // If the model didn't call a tool, we're done
             if (!response.stopReason().orElse(StopReason.END_TURN).equals(StopReason.TOOL_USE)) {
                 return;
