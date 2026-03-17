@@ -1,5 +1,7 @@
 package com.yumi.util;
 
+import com.yumi.agents.Base;
+
 import java.io.*;
 import java.util.*;
 import java.util.concurrent.*;
@@ -29,7 +31,7 @@ public class EnhancedBashExecutor {
         }
 
         try {
-            String currentDir = System.getProperty("user.dir");
+            String currentDir = Base.WORKDIR;
 
             ProcessBuilder pb = new ProcessBuilder();
             boolean isWindows = System.getProperty("os.name").toLowerCase().startsWith("windows");

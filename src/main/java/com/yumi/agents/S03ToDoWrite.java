@@ -1,7 +1,6 @@
 
 package com.yumi.agents;
 
-import com.alibaba.fastjson2.JSON;
 import com.anthropic.core.JsonValue;
 import com.anthropic.models.messages.ContentBlock;
 import com.anthropic.models.messages.ContentBlockParam;
@@ -165,7 +164,6 @@ public class S03ToDoWrite extends Base {
                     messages.set(messages.size() - 1, newLast);
                 }
             }
-            IO.println(JSON.toJSONString(messages));
 
             var paramsBuilder = MessageCreateParams.builder()
                     .model(MODEL).system(SYSTEM)
@@ -176,6 +174,8 @@ public class S03ToDoWrite extends Base {
 
 
             addAssistants(messages, response);
+
+            messages.forEach(IO::println);
 
             // If the model didn't call a tool, we're done
             if (!response.stopReason().orElse(StopReason.END_TURN).equals(StopReason.TOOL_USE)) {

@@ -15,7 +15,6 @@ import com.yumi.util.EnvLoader;
 
 import java.io.File;
 import java.net.URI;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -34,7 +33,7 @@ public class Base {
 
     protected static String MODEL = System.getProperty(Constants.MODEL_ID_KEY);
 
-    protected static String WORKDIR = System.getProperty("user.dir") + File.separator + "work";
+    public static String WORKDIR = System.getProperty("user.dir") + File.separator + "work";
 
     protected static Path SKILLS_DIR = Path.of(URI.create("file://" + Objects.requireNonNull(Base.class.getClassLoader().getResource("")).getPath().concat("skills")));
 

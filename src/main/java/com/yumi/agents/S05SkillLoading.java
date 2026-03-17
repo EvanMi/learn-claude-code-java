@@ -189,7 +189,6 @@ public class S05SkillLoading extends Base {
     }
 
     public static void main(String[] ignoredArgs) {
-        IO.println(SYSTEM);
         var history = new ArrayList<MessageParam>();
         while (true) {
             var query = "";
