@@ -1,5 +1,7 @@
 package com.yumi.util;
 
+import com.yumi.agents.Base;
+
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -8,7 +10,7 @@ import java.util.List;
 
 public class PathUtils {
     
-    private static final Path WORKDIR = Paths.get(System.getProperty("user.dir"));
+    private static final Path WORKDIR = Paths.get(Base.WORKDIR);
     
     /**
      * 安全路径验证函数 - Python safe_path的Java实现
