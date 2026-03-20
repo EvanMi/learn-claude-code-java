@@ -14,15 +14,16 @@ import com.yumi.util.PathUtils;
 import com.yumi.util.ToolWrapper;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 
 /**
  * s02_tool_use.py - Tools
- *
+ * <p>
  * The agent loop from s01 didn't change. We just added tools to the array
  * and a dispatch map to route calls.
- *
+ * <p>
  *     +----------+      +-------+      +------------------+
  *     |   User   | ---> |  LLM  | ---> | Tool Dispatch    |
  *     |  prompt  |      |       |      | {                |
@@ -32,7 +33,7 @@ import java.util.Map;
  *                           +----------+   edit: run_edit |
  *                           tool_result| }                |
  *                                      +------------------+
- *
+ * <p>
  * Key insight: "The loop didn't change at all. I just added tools."
  */
 public class S02ToolUse extends Base {
@@ -172,7 +173,11 @@ public class S02ToolUse extends Base {
             }
             history.add(MessageParam.builder().role(MessageParam.Role.USER).content(query).build());
             agentLoop(history);
-            IO.println();
+            var responseContent = history.getLast().content();
+            responseContent.blockParams().stream()
+                    .flatMap(Collection::stream)
+                    .filter(ContentBlockParam::isText)
+                    .forEach(block -> IO.println(block.text().orElseThrow().text().trim()));
         }
     }
 }

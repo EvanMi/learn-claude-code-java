@@ -1,4 +1,3 @@
-
 package com.yumi.agents;
 
 import com.anthropic.core.JsonValue;
@@ -7,64 +6,58 @@ import com.anthropic.models.messages.ContentBlockParam;
 import com.anthropic.models.messages.MessageCreateParams;
 import com.anthropic.models.messages.MessageParam;
 import com.anthropic.models.messages.StopReason;
-import com.anthropic.models.messages.TextBlockParam;
 import com.anthropic.models.messages.Tool;
 import com.anthropic.models.messages.ToolResultBlockParam;
 import com.anthropic.models.messages.ToolUnion;
 import com.yumi.util.EnhancedBashExecutor;
 import com.yumi.util.PathUtils;
-import com.yumi.util.TodoManager;
+import com.yumi.util.TaskManager;
 import com.yumi.util.ToolWrapper;
 
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 
 /**
- * s03_todo_write.py - TodoWrite
+ * s07_task_system.py - Tasks
  * <p>
- * The model tracks its own progress via a TodoManager. A nag reminder
- * forces it to keep updating when it forgets.
+ * Tasks persist as JSON files in .tasks/ so they survive context compression.
+ * Each task has a dependency graph (blockedBy/blocks).
  * <p>
- *     +----------+      +-------+      +---------+
- *     |   User   | ---> |  LLM  | ---> | Tools   |
- *     |  prompt  |      |       |      | + todo  |
- *     +----------+      +---+---+      +----+----+
- *                           ^               |
- *                           |   tool_result |
- *                           +---------------+
- *                                 |
- *                     +-----------+-----------+
- *                     | TodoManager state     |
- *                     | [ ] task A            |
- *                     | [>] task B <- doing   |
- *                     | [x] task C            |
- *                     +-----------------------+
- *                                 |
- *                     if rounds_since_todo >= 3:
- *                       inject <reminder>
+ *     .tasks/
+ *       task_1.json  {"id":1, "subject":"...", "status":"completed", ...}
+ *       task_2.json  {"id":2, "blockedBy":[1], "status":"pending", ...}
+ *       task_3.json  {"id":3, "blockedBy":[2], "blocks":[], ...}
  * <p>
- * Key insight: "The agent can track its own progress -- and I can see it."
+ *     Dependency resolution:
+ *     +----------+     +----------+     +----------+
+ *     | task 1   | --> | task 2   | --> | task 3   |
+ *     | complete |     | blocked  |     | blocked  |
+ *     +----------+     +----------+     +----------+
+ *          |                ^
+ *          +--- completing task 1 removes it from task 2's blockedBy
+ * <p>
+ * Key insight: "State that survives compression -- because it's outside the conversation."
  */
-public class S03ToDoWrite extends Base {
+public class S07TaskSystem extends Base {
 
-    private static final String SYSTEM = """
-            You are a coding agent at\s"""
-            + WORKDIR +
-            """
-            .
-            Use the todo tool to plan multi-step tasks. Mark in_progress before starting, completed when done.
-            Prefer tools over prose.""";
+    private static final Path TASKS_DIR = Path.of(WORKDIR, ".tasks");
 
-    private static final TodoManager TODO = new TodoManager();
+    private static final String SYSTEM = "You are a coding agent at " + WORKDIR + ". Use task tools to plan and track work.";
+
+    private static final TaskManager TASKS = new TaskManager(TASKS_DIR);
 
     private static final Map<String, ToolWrapper<?>> TOOL_HANDLERS = Map.of(
             "bash", new ToolWrapper<>(EnhancedBashExecutor::runBash, EnhancedBashExecutor.BashCommand.class),
             "readFile", new ToolWrapper<>(PathUtils::runRead, PathUtils.ReadCommand.class),
             "writeFile", new ToolWrapper<>(PathUtils::runWrite, PathUtils.WriteCommand.class),
             "editFile", new ToolWrapper<>(PathUtils::runEdit, PathUtils.EditCommand.class),
-            "todo", new ToolWrapper<>(TODO::update, TodoManager.TodoUpdateCommand.class)
+            "taskCreate", new ToolWrapper<>(TASKS::create, TaskManager.CreateTaskCommand.class),
+            "taskUpdate", new ToolWrapper<>(TASKS::update, TaskManager.UpdateTaskCommand.class),
+            "taskList", new ToolWrapper<>(o -> TASKS.listAll(), Object.class),
+            "taskGet", new ToolWrapper<>(TASKS::get, TaskManager.GetTaskCommand.class)
     );
 
     private static final List<ToolUnion> TOOLS = List.of(
@@ -129,50 +122,69 @@ public class S03ToDoWrite extends Base {
                             ).build()
             ),
             ToolUnion.ofTool(
-                    Tool.builder().name("todo").description("Update task list. Track progress on multi-step tasks.")
+                    Tool.builder().name("taskCreate").description("Create a new task.")
                             .inputSchema(
                                     Tool.InputSchema.builder().type(JsonValue.from("object"))
-                                            .properties( Tool.InputSchema.Properties.builder()
-                                                    .putAdditionalProperty("items", JsonValue.from(Map.of(
-                                                            "type", "array",
-                                                            "items", Map.of(
-                                                                    "type", "object",
-                                                                    "properties", Map.of(
-                                                                            "id", Map.of("type", "string"),
-                                                                            "text", Map.of("type", "string"),
-                                                                            "status", Map.of("type", "string", "enum", List.of("pending", "in_progress", "completed"),
-                                                                                    "required", List.of("id", "text", "status")
-                                                                            )
-                                                                    ))
-                                                    ))).build()
+                                            .properties(
+                                                    Tool.InputSchema.Properties.builder()
+                                                            .putAdditionalProperty("subject", JsonValue.from(Map.of("type", "string")))
+                                                            .putAdditionalProperty("description", JsonValue.from(Map.of("type", "string")))
+                                                            .build()
                                             )
-                                            .required(List.of("items"))
+                                            .required(List.of("subject"))
+                                            .build()
+                            ).build()
+            ),
+            ToolUnion.ofTool(
+                    Tool.builder().name("taskUpdate").description("Update a task's status or dependencies.")
+                            .inputSchema(
+                                    Tool.InputSchema.builder().type(JsonValue.from("object"))
+                                            .properties(
+                                                    Tool.InputSchema.Properties.builder()
+                                                            .putAdditionalProperty("taskId", JsonValue.from(Map.of("type", "integer")))
+                                                            .putAdditionalProperty("status", JsonValue.from(Map.of("type", "string",
+                                                                    "enum", List.of("pending", "in_progress", "completed"))))
+                                                            .putAdditionalProperty("addBlockedBy", JsonValue.from(Map.of("type", "array", "items", Map.of("type", "integer"))))
+                                                            .putAdditionalProperty("addBlocks", JsonValue.from(Map.of("type", "array", "items", Map.of("type", "integer"))))
+                                                            .build()
+                                            )
+                                            .required(List.of("task_id"))
+                                            .build()
+                            ).build()
+            ),
+            ToolUnion.ofTool(
+                    Tool.builder().name("taskList").description("List all tasks with status summary.")
+                            .inputSchema(
+                                    Tool.InputSchema.builder().type(JsonValue.from("object"))
+                                            .properties(
+                                                    Tool.InputSchema.Properties.builder().build()
+                                            )
+                                            .build()
+                            ).build()
+            ),
+            ToolUnion.ofTool(
+                    Tool.builder().name("taskGet").description("Get full details of a task by ID.")
+                            .inputSchema(
+                                    Tool.InputSchema.builder().type(JsonValue.from("object"))
+                                            .properties(
+                                                    Tool.InputSchema.Properties.builder()
+                                                            .putAdditionalProperty("taskId", JsonValue.from(Map.of("type", "integer")))
+                                                            .build()
+                                            )
+                                            .required(List.of("taskId"))
                                             .build()
                             ).build()
             )
     );
 
     private static void agentLoop(List<MessageParam> messages) {
-        var roundsSinceTodo = 0;
         while (true) {
-            if (roundsSinceTodo > 3 && !messages.isEmpty())  {
-                var last = messages.getLast();
-                if (last.role().equals(MessageParam.Role.USER) && last.content().isBlockParams()) {
-                    var list = new ArrayList<ContentBlockParam>();
-                    list.addAll(last.content().asBlockParams());
-                    list.add(ContentBlockParam.ofText(TextBlockParam.builder().text("<reminder>Update your todos.</reminder>").build()));
-                    var newLast = MessageParam.builder().role(last.role()).content(MessageParam.Content.ofBlockParams(list)).build();
-                    messages.set(messages.size() - 1, newLast);
-                }
-            }
-
             var paramsBuilder = MessageCreateParams.builder()
                     .model(MODEL).system(SYSTEM)
                     .messages(messages)
                     .tools(TOOLS).maxTokens(8000);
 
             var response = client.messages().create(paramsBuilder.build());
-
 
             addAssistants(messages, response);
 
@@ -183,7 +195,6 @@ public class S03ToDoWrite extends Base {
 
             List<ContentBlockParam> results = new ArrayList<>();
             // Execute each tool call, collect results
-            var usedTodo = false;
             for (ContentBlock contentBlock : response.content()) {
                 if (contentBlock.isToolUse()) {
                     var toolUseBlock = contentBlock.toolUse().orElseThrow();
@@ -194,10 +205,6 @@ public class S03ToDoWrite extends Base {
                     } else {
                         output = handler.executeCommand(toolUseBlock._input());
                         IO.println(String.format("> %s: %s}", toolUseBlock.name(), output.substring(0, Math.min(output.length(), 200)).trim()));
-                        if (toolUseBlock.name().equalsIgnoreCase("todo")) {
-                            usedTodo = true;
-                        }
-                        roundsSinceTodo = usedTodo ? 0 : roundsSinceTodo + 1;
                     }
                     results.add(
                             ContentBlockParam.ofToolResult(
@@ -218,14 +225,12 @@ public class S03ToDoWrite extends Base {
         }
     }
 
-
-
     public static void main(String[] ignoredArgs) {
         var history = new ArrayList<MessageParam>();
         while (true) {
             var query = "";
             try {
-                query = IO.readln("\033[36ms03 >> \033[0m").strip();
+                query = IO.readln("\033[36ms07 >> \033[0m").strip();
             } catch (Exception e) {
                 break;
             }

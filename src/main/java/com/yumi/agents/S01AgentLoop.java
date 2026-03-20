@@ -18,14 +18,14 @@ import java.util.Map;
 
 /**
  * s01_agent_loop.py - The Agent Loop
- *
+ * <p>
  * The entire secret of an AI coding agent in one pattern:
- *
+ * <p>
  *     while stop_reason == "tool_use":
  *         response = LLM(messages, tools)
  *         execute tools
  *         append results
- *
+ * <p>
  *     +----------+      +-------+      +---------+
  *     |   User   | ---> |  LLM  | ---> |  Tool   |
  *     |  prompt  |      |       |      | execute |
@@ -34,7 +34,7 @@ import java.util.Map;
  *                           |   tool_result |
  *                           +---------------+
  *                           (loop continues)
- *
+ * <p>
  * This is the core loop: feed tool results back to the model
  * until the model decides to stop. Production agents layer
  * policy, hooks, and lifecycle controls on top.

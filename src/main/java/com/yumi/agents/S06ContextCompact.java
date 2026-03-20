@@ -17,6 +17,7 @@ import com.yumi.util.ToolWrapper;
 import java.io.File;
 import java.io.FileWriter;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -24,9 +25,9 @@ import java.util.stream.Collectors;
 
 /**
  * s06_context_compact.py - Compact
- *
+ * <p>
  * Three-layer compression pipeline so the agent can work forever:
- *
+ * <p>
  *     Every turn:
  *     +------------------+
  *     | Tool call result |
@@ -52,7 +53,7 @@ import java.util.stream.Collectors;
  *                 [Layer 3: compact tool]
  *                   Model calls compact -> immediate summarization.
  *                   Same as auto, triggered manually.
- *
+ * <p>
  * Key insight: "The agent can forget strategically and keep working forever."
  */
 public class S06ContextCompact extends Base {
@@ -346,7 +347,11 @@ public class S06ContextCompact extends Base {
             }
             history.add(MessageParam.builder().role(MessageParam.Role.USER).content(query).build());
             agentLoop(history);
-            IO.println();
+            var responseContent = history.getLast().content();
+            responseContent.blockParams().stream()
+                    .flatMap(Collection::stream)
+                    .filter(ContentBlockParam::isText)
+                    .forEach(block -> IO.println(block.text().orElseThrow().text().trim()));
         }
     }
 }

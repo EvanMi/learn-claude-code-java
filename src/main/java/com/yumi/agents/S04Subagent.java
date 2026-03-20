@@ -8,16 +8,17 @@ import com.yumi.util.PathUtils;
 import com.yumi.util.ToolWrapper;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
 /**
  * s04_subagent.py - Subagents
- *
+ * <p>
  * Spawn a child agent with fresh messages=[]. The child works in its own
  * context, sharing the filesystem, then returns only a summary to the parent.
- *
+ * <p>
  *     Parent agent                     Subagent
  *     +------------------+             +------------------+
  *     | messages=[...]   |             | messages=[]      |  <-- fresh
@@ -31,7 +32,7 @@ import java.util.Map;
  *               |
  *     Parent context stays clean.
  *     Subagent context is discarded.
- *
+ * <p>
  * Key insight: "Process isolation gives context isolation for free."
  */
 public class S04Subagent extends Base {
@@ -277,7 +278,11 @@ public class S04Subagent extends Base {
             }
             history.add(MessageParam.builder().role(MessageParam.Role.USER).content(query).build());
             agentLoop(history);
-            IO.println();
+            var responseContent = history.getLast().content();
+            responseContent.blockParams().stream()
+                    .flatMap(Collection::stream)
+                    .filter(ContentBlockParam::isText)
+                    .forEach(block -> IO.println(block.text().orElseThrow().text().trim()));
         }
     }
 

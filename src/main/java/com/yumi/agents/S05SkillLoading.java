@@ -15,17 +15,18 @@ import com.yumi.util.SkillLoader;
 import com.yumi.util.ToolWrapper;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 
 /**
  * s05_skill_loading.py - Skills
- *
+ * <p>
  * Two-layer skill injection that avoids bloating the system prompt:
- *
+ * <p>
  *     Layer 1 (cheap): skill names in system prompt (~100 tokens/skill)
  *     Layer 2 (on demand): full skill body in tool_result
- *
+ * <p>
  *     System prompt:
  *     +--------------------------------------+
  *     | You are a coding agent.              |
@@ -33,7 +34,7 @@ import java.util.Map;
  *     |   - git: Git workflow helpers        |  <-- Layer 1: metadata only
  *     |   - test: Testing best practices     |
  *     +--------------------------------------+
- *
+ * <p>
  *     When model calls load_skill("git"):
  *     +--------------------------------------+
  *     | tool_result:                         |
@@ -43,7 +44,7 @@ import java.util.Map;
  *     |   Step 2: ...                        |
  *     | </skill>                             |
  *     +--------------------------------------+
- *
+ * <p>
  * Key insight: "Don't put everything in the system prompt. Load on demand."
  */
 public class S05SkillLoading extends Base {
@@ -202,7 +203,11 @@ public class S05SkillLoading extends Base {
             }
             history.add(MessageParam.builder().role(MessageParam.Role.USER).content(query).build());
             agentLoop(history);
-            IO.println();
+            var responseContent = history.getLast().content();
+            responseContent.blockParams().stream()
+                    .flatMap(Collection::stream)
+                    .filter(ContentBlockParam::isText)
+                    .forEach(block -> IO.println(block.text().orElseThrow().text().trim()));
         }
     }
 }
