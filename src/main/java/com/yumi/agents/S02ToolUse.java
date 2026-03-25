@@ -118,7 +118,7 @@ public class S02ToolUse extends Base {
                     .messages(messages)
                     .tools(TOOLS).maxTokens(8000);
 
-            var response = client.messages().create(paramsBuilder.build());
+            var response = CLIENT.messages().create(paramsBuilder.build());
 
             addAssistants(messages, response);
 

@@ -146,7 +146,7 @@ public class S04Subagent extends Base {
                         .maxTokens(8000L).tools(CHILD_TOOLS).build();
 
                 // 发送请求并获取响应
-                response = client.messages().create(params);
+                response = CLIENT.messages().create(params);
 
                 addAssistants(subMessages, response);
 
@@ -213,7 +213,7 @@ public class S04Subagent extends Base {
                     .messages(messages)
                     .tools(PARENT_TOOLS).maxTokens(8000);
 
-            var response = client.messages().create(paramsBuilder.build());
+            var response = CLIENT.messages().create(paramsBuilder.build());
 
             addAssistants(messages, response);
 

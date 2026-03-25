@@ -165,7 +165,7 @@ public class S06ContextCompact extends Base {
                     ))
                     .maxTokens(2000);
 
-            var response = client.messages().create(paramsBuilder.build());
+            var response = CLIENT.messages().create(paramsBuilder.build());
             var summary = response.content().getFirst().asText().text();
             //Replace all messages with compressed summary
             List<MessageParam> result = new ArrayList<>(2);
@@ -282,7 +282,7 @@ public class S06ContextCompact extends Base {
                     .messages(messages)
                     .tools(TOOLS).maxTokens(8000);
 
-            var response = client.messages().create(paramsBuilder.build());
+            var response = CLIENT.messages().create(paramsBuilder.build());
 
             addAssistants(messages, response);
 

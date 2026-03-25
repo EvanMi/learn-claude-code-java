@@ -24,7 +24,7 @@ public class BackgroundManager {
         this.notificationQueue = new ArrayList<>();
         this.lock = new ReentrantLock();
         this.workDir = workDir;
-        this.executorService = Executors.newCachedThreadPool();
+        this.executorService = Executors.newFixedThreadPool(10);
     }
 
     public record RunBackgroundTaskCommand(String command) {}
@@ -36,7 +36,7 @@ public class BackgroundManager {
         String taskId = generateTaskId();
         TaskInfo taskInfo = new TaskInfo(taskId, "running", command.command());
         tasks.put(taskId, taskInfo);
-        executorService.submit(() -> execute(taskId, command.command()));
+        executorService.execute(() -> execute(taskId, command.command()));
         return String.format("Background task %s started: %s", taskId, truncate(command.command(), 80));
     }
 
@@ -140,7 +140,7 @@ public class BackgroundManager {
     }
 
     private void updateTask(String taskId, String status, String result) {
-        tasks.computeIfPresent(taskId, (_, v) -> {
+        tasks.computeIfPresent(taskId, (key, v) -> {
             v.setStatus(status);
             v.setResult(result);
             return v;

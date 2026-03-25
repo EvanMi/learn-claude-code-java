@@ -26,7 +26,7 @@ public class Base {
         EnvLoader.loadEnv();
     }
 
-    protected static AnthropicClient client = AnthropicOkHttpClient.builder()
+    public static AnthropicClient CLIENT = AnthropicOkHttpClient.builder()
             .baseUrl(System.getProperty(Constants.ANTHROPIC_BASE_URL_KEY))
             .apiKey(System.getProperty(Constants.ANTHROPIC_API_KEY_KEY))
             .build();

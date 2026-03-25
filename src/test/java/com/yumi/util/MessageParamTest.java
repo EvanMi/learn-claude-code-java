@@ -1,12 +1,10 @@
 package com.yumi.util;
 
-import com.alibaba.fastjson2.JSON;
-import com.alibaba.fastjson2.JSONWriter;
+
 import com.anthropic.core.JsonValue;
 import com.anthropic.models.messages.ContentBlockParam;
 import com.anthropic.models.messages.MessageParam;
 import com.anthropic.models.messages.ToolResultBlockParam;
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.Test;
@@ -43,8 +41,6 @@ public class MessageParamTest {
         IO.println(blockParams.getClass());
 
         System.out.println(JsonValue.from(param));
-
-        System.out.println(JSON.toJSONString(JsonValue.from(param)));
 
         JsonMapper mapper = JsonMapper.builder().build();
         System.out.println(mapper.writer().writeValueAsString(param));

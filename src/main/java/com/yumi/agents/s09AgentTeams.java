@@ -9,10 +9,14 @@ import com.anthropic.models.messages.StopReason;
 import com.anthropic.models.messages.Tool;
 import com.anthropic.models.messages.ToolResultBlockParam;
 import com.anthropic.models.messages.ToolUnion;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
 import com.yumi.util.EnhancedBashExecutor;
+import com.yumi.util.MessageBus;
 import com.yumi.util.PathUtils;
-import com.yumi.util.TaskManager;
-import com.yumi.util.ToolWrapper;
+import com.yumi.util.TeammateManager;
+import com.yumi.util.TeammateToolWrapper;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -21,44 +25,80 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * s07_task_system.py - Tasks
+ * s09_agent_teams.py - Agent Teams
  * <p>
- * Tasks persist as JSON files in .tasks/ so they survive context compression.
- * Each task has a dependency graph (blockedBy/blocks).
+ * Persistent named agents with file-based JSONL inboxes. Each teammate runs
+ * its own agent loop in a separate thread. Communication via append-only inboxes.
  * <p>
- *     .tasks/
- *       task_1.json  {"id":1, "subject":"...", "status":"completed", ...}
- *       task_2.json  {"id":2, "blockedBy":[1], "status":"pending", ...}
- *       task_3.json  {"id":3, "blockedBy":[2], "blocks":[], ...}
+ * Subagent (s04):  spawn -> execute -> return summary -> destroyed
+ * Teammate (s09):  spawn -> work -> idle -> work -> ... -> shutdown
  * <p>
- *     Dependency resolution:
- *     +----------+     +----------+     +----------+
- *     | task 1   | --> | task 2   | --> | task 3   |
- *     | complete |     | blocked  |     | blocked  |
- *     +----------+     +----------+     +----------+
- *          |                ^
- *          +--- completing task 1 removes it from task 2's blockedBy
+ * .team/config.json                   .team/inbox/
+ * +----------------------------+      +------------------+
+ * | {"team_name": "default",   |      | alice.jsonl      |
+ * |  "members": [              |      | bob.jsonl        |
+ * |    {"name":"alice",        |      | lead.jsonl       |
+ * |     "role":"coder",        |      +------------------+
+ * |     "status":"idle"}       |
+ * |  ]}                        |      send_message("alice", "fix bug"):
+ * +----------------------------+        open("alice.jsonl", "a").write(msg)
  * <p>
- * Key insight: "State that survives compression -- because it's outside the conversation."
+ * read_inbox("alice"):
+ * spawn_teammate("alice","coder",...)   msgs = [json.loads(l) for l in ...]
+ * |                                open("alice.jsonl", "w").close()
+ * v                                return msgs  # drain
+ * Thread: alice             Thread: bob
+ * +------------------+      +------------------+
+ * | agent_loop       |      | agent_loop       |
+ * | status: working  |      | status: idle     |
+ * | ... runs tools   |      | ... waits ...    |
+ * | status -> idle   |      |                  |
+ * +------------------+      +------------------+
+ * <p>
+ * 5 message types (all declared, not all handled here):
+ * +-------------------------+-----------------------------------+
+ * | message                 | Normal text message               |
+ * | broadcast               | Sent to all teammates             |
+ * | shutdown_request        | Request graceful shutdown (s10)   |
+ * | shutdown_response       | Approve/reject shutdown (s10)     |
+ * | plan_approval_response  | Approve/reject plan (s10)         |
+ * +-------------------------+-----------------------------------+
+ * <p>
+ * Key insight: "Teammates that can talk to each other."
  */
-public class S07TaskSystem extends Base {
+public class s09AgentTeams extends Base {
 
-    private static final Path TASKS_DIR = Path.of(WORKDIR, ".tasks");
+    private static final Path TEAM_DIR = Path.of(WORKDIR, ".team");
+    private static final Path INBOX_DIR = TEAM_DIR.resolve("inbox");
+    private static final String SYSTEM = "You are a team lead at " + WORKDIR + ". Spawn teammates and communicate via inboxes.";
+    private static final ObjectMapper OBJECT_MAPPER;
+    private static final MessageBus BUS = new MessageBus(INBOX_DIR);
+    private static final TeammateManager TEAM = new TeammateManager(TEAM_DIR, BUS);
 
-    private static final String SYSTEM = "You are a coding agent at " + WORKDIR + ". Use task tools to plan and track work.";
+    static {
+        OBJECT_MAPPER = new ObjectMapper();
+        OBJECT_MAPPER.enable(SerializationFeature.INDENT_OUTPUT);
+    }
 
-    private static final TaskManager TASKS = new TaskManager(TASKS_DIR);
 
-    private static final Map<String, ToolWrapper<?>> TOOL_HANDLERS = Map.of(
-            "bash", new ToolWrapper<>(EnhancedBashExecutor::runBash, EnhancedBashExecutor.BashCommand.class),
-            "readFile", new ToolWrapper<>(PathUtils::runRead, PathUtils.ReadCommand.class),
-            "writeFile", new ToolWrapper<>(PathUtils::runWrite, PathUtils.WriteCommand.class),
-            "editFile", new ToolWrapper<>(PathUtils::runEdit, PathUtils.EditCommand.class),
-            "taskCreate", new ToolWrapper<>(TASKS::create, TaskManager.CreateTaskCommand.class),
-            "taskUpdate", new ToolWrapper<>(TASKS::update, TaskManager.UpdateTaskCommand.class),
-            "taskList", new ToolWrapper<>(o -> TASKS.listAll(), Object.class),
-            "taskGet", new ToolWrapper<>(TASKS::get, TaskManager.GetTaskCommand.class)
+    private static final Map<String, TeammateToolWrapper<?>> TOOL_HANDLERS = Map.of(
+            "bash", new TeammateToolWrapper<>(EnhancedBashExecutor::runBash, EnhancedBashExecutor.BashCommand.class, TEAM),
+            "readFile", new TeammateToolWrapper<>(PathUtils::runRead, PathUtils.ReadCommand.class, TEAM),
+            "writeFile", new TeammateToolWrapper<>(PathUtils::runWrite, PathUtils.WriteCommand.class, TEAM),
+            "editFile", new TeammateToolWrapper<>(PathUtils::runEdit, PathUtils.EditCommand.class, TEAM),
+            "sendMessage", new TeammateToolWrapper<>(BUS::send, MessageBus.SendCommand.class, TEAM),
+            "readInbox", new TeammateToolWrapper<>(arg -> {
+                try {
+                    return OBJECT_MAPPER.writeValueAsString(BUS.readInbox(arg));
+                } catch (JsonProcessingException e) {
+                    return "{}";
+                }
+            }, MessageBus.ReadInboxCommand.class, TEAM),
+            "broadcast", new TeammateToolWrapper<>(BUS::broadcast, MessageBus.BroadcastCommand.class, TEAM),
+            "spawnTeammate", new TeammateToolWrapper<>(TEAM::spawn, TeammateManager.SpawnCommand.class, TEAM),
+            "listTeammates", new TeammateToolWrapper<>(o -> TEAM.listAll(), Object.class, TEAM)
     );
+
 
     private static final List<ToolUnion> TOOLS = List.of(
             ToolUnion.ofTool(
@@ -122,63 +162,69 @@ public class S07TaskSystem extends Base {
                             ).build()
             ),
             ToolUnion.ofTool(
-                    Tool.builder().name("taskCreate").description("Create a new task.")
+                    Tool.builder().name("sendMessage").description("Send message to a teammate.")
                             .inputSchema(
                                     Tool.InputSchema.builder().type(JsonValue.from("object"))
+
                                             .properties(
                                                     Tool.InputSchema.Properties.builder()
-                                                            .putAdditionalProperty("subject", JsonValue.from(Map.of("type", "string")))
-                                                            .putAdditionalProperty("description", JsonValue.from(Map.of("type", "string")))
+                                                            .putAdditionalProperty("to", JsonValue.from(Map.of("type", "string")))
+                                                            .putAdditionalProperty("content", JsonValue.from(Map.of("type", "string")))
+                                                            .putAdditionalProperty("msgType", JsonValue.from(Map.of("type", "string", "enum", MessageBus.VALID_MSG_TYPES)))
                                                             .build()
                                             )
-                                            .required(List.of("subject"))
+                                            .required(List.of("to", "content"))
                                             .build()
                             ).build()
             ),
             ToolUnion.ofTool(
-                    Tool.builder().name("taskUpdate").description("Update a task's status or dependencies.")
+                    Tool.builder().name("readInbox").description("Read and drain your inbox.")
+                            .inputSchema(
+                                    Tool.InputSchema.builder().type(JsonValue.from("object")).build()
+                            ).build()
+            ),
+            ToolUnion.ofTool(
+                    Tool.builder().name("broadcast").description("Send a message to all teammates.")
                             .inputSchema(
                                     Tool.InputSchema.builder().type(JsonValue.from("object"))
-                                            .properties(
-                                                    Tool.InputSchema.Properties.builder()
-                                                            .putAdditionalProperty("taskId", JsonValue.from(Map.of("type", "integer")))
-                                                            .putAdditionalProperty("status", JsonValue.from(Map.of("type", "string",
-                                                                    "enum", List.of("pending", "in_progress", "completed"))))
-                                                            .putAdditionalProperty("addBlockedBy", JsonValue.from(Map.of("type", "array", "items", Map.of("type", "integer"))))
-                                                            .putAdditionalProperty("addBlocks", JsonValue.from(Map.of("type", "array", "items", Map.of("type", "integer"))))
-                                                            .build()
-                                            )
-                                            .required(List.of("task_id"))
+                                            .putAdditionalProperty("content", JsonValue.from(Map.of("type", "string")))
+                                            .required(List.of("content"))
                                             .build()
                             ).build()
             ),
             ToolUnion.ofTool(
-                    Tool.builder().name("taskList").description("List all tasks with status summary.")
+                    Tool.builder().name("spawnTeammate").description("Spawn a persistent teammate that runs in its own thread.")
                             .inputSchema(
                                     Tool.InputSchema.builder().type(JsonValue.from("object"))
-                                            .properties(
-                                                    Tool.InputSchema.Properties.builder().build()
-                                            )
+                                            .putAdditionalProperty("name", JsonValue.from(Map.of("type", "string")))
+                                            .putAdditionalProperty("role", JsonValue.from(Map.of("type", "string")))
+                                            .putAdditionalProperty("prompt", JsonValue.from(Map.of("type", "string")))
+                                            .required(List.of("name", "role", "prompt"))
                                             .build()
                             ).build()
             ),
             ToolUnion.ofTool(
-                    Tool.builder().name("taskGet").description("Get full details of a task by ID.")
+                    Tool.builder().name("listTeammates").description("List all teammates with name, role, status.")
                             .inputSchema(
                                     Tool.InputSchema.builder().type(JsonValue.from("object"))
-                                            .properties(
-                                                    Tool.InputSchema.Properties.builder()
-                                                            .putAdditionalProperty("taskId", JsonValue.from(Map.of("type", "integer")))
-                                                            .build()
-                                            )
-                                            .required(List.of("taskId"))
                                             .build()
                             ).build()
             )
     );
 
+
     private static void agentLoop(List<MessageParam> messages) {
         while (true) {
+            var inbox = BUS.readInbox(new MessageBus.ReadInboxCommand("lead"));
+            if (null != inbox && !inbox.isEmpty()) {
+                try {
+                    messages.addLast(MessageParam.builder().role(MessageParam.Role.USER).content(String.format("<inbox>"+ OBJECT_MAPPER.writeValueAsString(inbox) +"</inbox>")).build());
+                    messages.addLast(MessageParam.builder().role(MessageParam.Role.ASSISTANT).content("Noted inbox messages.").build());
+                } catch (JsonProcessingException e) {
+                    throw new RuntimeException(e);
+                }
+            }
+
             var paramsBuilder = MessageCreateParams.builder()
                     .model(MODEL).system(SYSTEM)
                     .messages(messages)
@@ -203,7 +249,7 @@ public class S07TaskSystem extends Base {
                     if (null == handler) {
                         output = "Unknown tool: " + toolUseBlock.name();
                     } else {
-                        output = handler.executeCommand(toolUseBlock._input());
+                        output = handler.executeCommand("lead", toolUseBlock._input());
                         IO.println(String.format("> %s: %s}", toolUseBlock.name(), output.substring(0, Math.min(output.length(), 200)).trim()));
                     }
                     results.add(
@@ -225,18 +271,31 @@ public class S07TaskSystem extends Base {
         }
     }
 
-    public static void main(String[] ignoredArgs) {
+    public static void main(String[] args) {
         var history = new ArrayList<MessageParam>();
         while (true) {
             var query = "";
             try {
-                query = IO.readln("\033[36ms07 >> \033[0m").strip();
+                query = IO.readln("\033[36ms09 >> \033[0m").strip();
             } catch (Exception e) {
                 break;
             }
             if (query.equalsIgnoreCase("q") || query.equalsIgnoreCase("exit") || query.equalsIgnoreCase("")) {
                 break;
             }
+            if (query.equalsIgnoreCase("/team")) {
+                IO.println(TEAM.listAll());
+                continue;
+            }
+            if (query.equalsIgnoreCase("/inbox")) {
+                try {
+                    IO.println(OBJECT_MAPPER.writeValueAsString(BUS.readInbox(new MessageBus.ReadInboxCommand("lead"))));
+                } catch (JsonProcessingException ignored) {
+
+                }
+                continue;
+            }
+
             history.add(MessageParam.builder().role(MessageParam.Role.USER).content(query).build());
             agentLoop(history);
             var responseContent = history.getLast().content();
