@@ -26,7 +26,7 @@ import java.util.concurrent.Executors;
 import java.util.stream.Collectors;
 
 
-public class TeammateManager extends Base {
+public class TeammateManagerS09 extends Base {
 
     private final Path dir;
     private final Path configPath;
@@ -109,7 +109,7 @@ public class TeammateManager extends Base {
                                                             .putAdditionalProperty("msgType", JsonValue.from(Map.of("type", "string", "enum", MessageBus.VALID_MSG_TYPES)))
                                                             .build()
                                             )
-                                            .required(List.of("to", "content"))
+                                            .required(List.of("to", "content", "msgType"))
                                             .build()
                             ).build()
             ),
@@ -121,7 +121,7 @@ public class TeammateManager extends Base {
             )
     );
 
-    public TeammateManager(Path teamDir, MessageBus messageBus) {
+    public TeammateManagerS09(Path teamDir, MessageBus messageBus) {
         this.dir = teamDir;
         this.messageBus = messageBus;
         this.configPath = dir.resolve("config.json");
@@ -156,6 +156,9 @@ public class TeammateManager extends Base {
         private String name;
         private String role;
         private String status;
+
+        public Member() {
+        }
 
         public Member(String name, String role, String status) {
             this.name = name;

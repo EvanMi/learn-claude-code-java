@@ -50,6 +50,9 @@ public class MessageBus {
         private String msgType;
         private Map<String, Object> extra;
 
+        public SendCommand() {
+        }
+
         public SendCommand(String sender, String to, String content, String msgType, Map<String, Object> extra) {
             this.sender = sender;
             this.to = to;
@@ -134,6 +137,9 @@ public class MessageBus {
     public static class ReadInboxCommand implements BusSender {
         private String name;
 
+        public ReadInboxCommand() {
+        }
+
         public ReadInboxCommand(String name) {
             this.name = name;
         }
@@ -187,6 +193,9 @@ public class MessageBus {
         private String sender;
         private String content;
         private List<String> teammates;
+
+        public BroadcastCommand() {
+        }
 
         public BroadcastCommand(String sender, String content, List<String> teammates) {
             this.sender = sender;

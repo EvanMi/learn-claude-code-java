@@ -15,7 +15,7 @@ import com.fasterxml.jackson.databind.SerializationFeature;
 import com.yumi.util.EnhancedBashExecutor;
 import com.yumi.util.MessageBus;
 import com.yumi.util.PathUtils;
-import com.yumi.util.TeammateManager;
+import com.yumi.util.TeammateManagerS09;
 import com.yumi.util.TeammateToolWrapper;
 
 import java.nio.file.Path;
@@ -73,7 +73,7 @@ public class s09AgentTeams extends Base {
     private static final String SYSTEM = "You are a team lead at " + WORKDIR + ". Spawn teammates and communicate via inboxes.";
     private static final ObjectMapper OBJECT_MAPPER;
     private static final MessageBus BUS = new MessageBus(INBOX_DIR);
-    private static final TeammateManager TEAM = new TeammateManager(TEAM_DIR, BUS);
+    private static final TeammateManagerS09 TEAM = new TeammateManagerS09(TEAM_DIR, BUS);
 
     static {
         OBJECT_MAPPER = new ObjectMapper();
@@ -95,7 +95,7 @@ public class s09AgentTeams extends Base {
                 }
             }, MessageBus.ReadInboxCommand.class, TEAM),
             "broadcast", new TeammateToolWrapper<>(BUS::broadcast, MessageBus.BroadcastCommand.class, TEAM),
-            "spawnTeammate", new TeammateToolWrapper<>(TEAM::spawn, TeammateManager.SpawnCommand.class, TEAM),
+            "spawnTeammate", new TeammateToolWrapper<>(TEAM::spawn, TeammateManagerS09.SpawnCommand.class, TEAM),
             "listTeammates", new TeammateToolWrapper<>(o -> TEAM.listAll(), Object.class, TEAM)
     );
 
@@ -173,7 +173,7 @@ public class s09AgentTeams extends Base {
                                                             .putAdditionalProperty("msgType", JsonValue.from(Map.of("type", "string", "enum", MessageBus.VALID_MSG_TYPES)))
                                                             .build()
                                             )
-                                            .required(List.of("to", "content"))
+                                            .required(List.of("to", "content","msgType"))
                                             .build()
                             ).build()
             ),
