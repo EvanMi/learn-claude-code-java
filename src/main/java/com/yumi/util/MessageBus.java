@@ -21,7 +21,7 @@ public class MessageBus {
         "broadcast", 
         "shutdown_request",
         "shutdown_response",
-        "plan_approval_response"
+        "plan_approval_response", "plan_approval_request"
     );
     
     private final Path dir;

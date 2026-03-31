@@ -8,10 +8,10 @@ import java.util.function.Function;
 public class TeammateToolWrapper<T> {
     private final Function<T, String> fun;
     private final Class<T> type;
-    private final TeammateManagerS09 manager;
+    private final MemberManager manager;
     private final ObjectMapper objectMapper;
 
-    public TeammateToolWrapper(Function<T, String> fun, Class<T> type, TeammateManagerS09 manager) {
+    public TeammateToolWrapper(Function<T, String> fun, Class<T> type, MemberManager manager) {
         this.fun = fun;
         this.type = type;
         this.manager = manager;
