@@ -4,14 +4,23 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 
 import java.io.IOException;
-import java.nio.file.*;
-import java.util.*;
+import java.nio.file.DirectoryStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+import java.util.concurrent.locks.ReentrantLock;
 
 public class TaskManager {
     private static final List<String> statusList = List.of("pending", "in_progress", "completed");
     private final Path tasksDir;
     private int nextId;
     private final ObjectMapper objectMapper;
+    private final ReentrantLock claimLock = new ReentrantLock();
 
     public TaskManager(Path tasksDir) {
         this.tasksDir = tasksDir;
@@ -169,8 +178,53 @@ public class TaskManager {
         }
     }
 
+    // -- Task board scanning --
+    public List<Task> scanUnclaimedTasks() {
+        try {
+            List<Task> tasks = new ArrayList<>();
+            try (DirectoryStream<Path> stream = Files.newDirectoryStream(tasksDir, "task_*.json")) {
+                List<Path> sortedFiles = new ArrayList<>();
+                for (Path file : stream) {
+                    sortedFiles.add(file);
+                }
+                sortedFiles.sort(Comparator.comparing(Path::getFileName));
+
+                for (Path file : sortedFiles) {
+                    var task = objectMapper.readValue(file.toFile(), Task.class);
+                    if (task.getStatus().equals("pending") && null == task.getOwner() && (null == task.getBlockedBy() || task.getBlockedBy().isEmpty())) {
+                        tasks.add(task);
+                    }
+                }
+            }
+            return tasks;
+
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    public record ClaimTaskCommand(int taskId, String owner) {}
+    public String claimTask(ClaimTaskCommand command) {
+        this.claimLock.lock();
+        try {
+            Task task = load(command.taskId());
+            if (null != task.getOwner()) {
+                return String.format("[FAIL] Task already claimed #%s for %s", command.taskId(), task.getOwner());
+            }
+            task.setOwner(command.owner());
+            task.setStatus("in_progress");
+            save(task);
+        } catch (IOException e) {
+            return String.format("[FAIL] Failed to claim task #%s for reason %s", command.taskId(), e.getMessage());
+        } finally {
+            this.claimLock.unlock();
+        }
+        return String.format("[SUCCESS] Claimed task #%s for %s", command.taskId(), command.owner());
+    }
+
     private static List<String> getLines(List<Task> tasks) {
         List<String> lines = new ArrayList<>();
+        lines.add("\n");
         for (Task task : tasks) {
             String marker = switch (task.getStatus()) {
                 case "pending" -> "[ ]";
@@ -179,9 +233,10 @@ public class TaskManager {
                 default -> "[?]";
             };
 
-            String blocked = task.getBlockedBy().isEmpty() ? "" :
+            var blocked = task.getBlockedBy().isEmpty() ? "" :
                 " (blocked by: " + task.getBlockedBy() + ")";
-            lines.add(marker + " #" + task.getId() + ": " + task.getSubject() + blocked);
+            var owner = " @" + (task.getOwner() == null ? "-": task.getOwner()) + " ";
+            lines.add(marker + " #" + task.getId() + ": " + task.getSubject() + owner + blocked);
         }
         return lines;
     }

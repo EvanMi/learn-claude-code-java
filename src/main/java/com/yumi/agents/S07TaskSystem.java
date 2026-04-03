@@ -56,7 +56,7 @@ public class S07TaskSystem extends Base {
             "editFile", new ToolWrapper<>(PathUtils::runEdit, PathUtils.EditCommand.class),
             "taskCreate", new ToolWrapper<>(TASKS::create, TaskManager.CreateTaskCommand.class),
             "taskUpdate", new ToolWrapper<>(TASKS::update, TaskManager.UpdateTaskCommand.class),
-            "taskList", new ToolWrapper<>(o -> TASKS.listAll(), Object.class),
+            "taskList", new ToolWrapper<>(_ -> TASKS.listAll(), Object.class),
             "taskGet", new ToolWrapper<>(TASKS::get, TaskManager.GetTaskCommand.class)
     );
 

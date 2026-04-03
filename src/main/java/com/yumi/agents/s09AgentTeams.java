@@ -96,7 +96,7 @@ public class s09AgentTeams extends Base {
             }, MessageBus.ReadInboxCommand.class, TEAM),
             "broadcast", new TeammateToolWrapper<>(BUS::broadcast, MessageBus.BroadcastCommand.class, TEAM),
             "spawnTeammate", new TeammateToolWrapper<>(TEAM::spawn, TeammateManagerS09.SpawnCommand.class, TEAM),
-            "listTeammates", new TeammateToolWrapper<>(o -> TEAM.listAll(), Object.class, TEAM)
+            "listTeammates", new TeammateToolWrapper<>(_ -> TEAM.listAll(), Object.class, TEAM)
     );
 
 

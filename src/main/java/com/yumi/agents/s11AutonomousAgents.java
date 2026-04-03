@@ -15,7 +15,8 @@ import com.fasterxml.jackson.databind.SerializationFeature;
 import com.yumi.util.EnhancedBashExecutor;
 import com.yumi.util.MessageBus;
 import com.yumi.util.PathUtils;
-import com.yumi.util.TeammateManagerS10;
+import com.yumi.util.TaskManager;
+import com.yumi.util.TeammateManagerS11;
 import com.yumi.util.TeammateToolWrapper;
 
 import java.nio.file.Path;
@@ -27,59 +28,51 @@ import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 /**
- * s10_team_protocols.py - Team Protocols
+ * s11_autonomous_agents.py - Autonomous Agents
  * <p>
- * Shutdown protocol and plan approval protocol, both using the same
- * request_id correlation pattern. Builds on s09's team messaging.
+ * Idle cycle with task board polling, auto-claiming unclaimed tasks, and
+ * identity re-injection after context compression. Builds on s10's protocols.
  * <p>
- *     Shutdown FSM: pending -> approved | rejected
+ * Teammate lifecycle:
+ * +-------+
+ * | spawn |
+ * +---+---+
+ * |
+ * v
+ * +-------+  tool_use    +-------+
+ * | WORK  | <----------- |  LLM  |
+ * +---+---+              +-------+
+ * |
+ * | stop_reason != tool_use
+ * v
+ * +--------+
+ * | IDLE   | poll every 5s for up to 60s
+ * +---+----+
+ * |
+ * +---> check inbox -> message? -> resume WORK
+ * |
+ * +---> scan .tasks/ -> unclaimed? -> claim -> resume WORK
+ * |
+ * +---> timeout (60s) -> shutdown
  * <p>
- *     Lead                              Teammate
- *     +---------------------+          +---------------------+
- *     | shutdown_request     |          |                     |
- *     | {                    | -------> | receives request    |
- *     |   request_id: abc    |          | decides: approve?   |
- *     | }                    |          |                     |
- *     +---------------------+          +---------------------+
- *                                              |
- *     +---------------------+          +-------v-------------+
- *     | shutdown_response    | <------- | shutdown_response   |
- *     | {                    |          | {                   |
- *     |   request_id: abc    |          |   request_id: abc   |
- *     |   approve: true      |          |   approve: true     |
- *     | }                    |          | }                   |
- *     +---------------------+          +---------------------+
- *             |
- *             v
- *     status -> "shutdown", thread stops
+ * Identity re-injection after compression:
+ * messages = [identity_block, ...remaining...]
+ * "You are 'coder', role: backend, team: my-team"
  * <p>
- *     Plan approval FSM: pending -> approved | rejected
- * <p>
- *     Teammate                          Lead
- *     +---------------------+          +---------------------+
- *     | plan_approval        |          |                     |
- *     | submit: {plan:"..."}| -------> | reviews plan text   |
- *     +---------------------+          | approve/reject?     |
- *                                      +---------------------+
- *                                              |
- *     +---------------------+          +-------v-------------+
- *     | plan_approval_resp   | <------- | plan_approval       |
- *     | {approve: true}      |          | review: {req_id,    |
- *     +---------------------+          |   approve: true}     |
- *                                      +---------------------+
- * <p>
- *     Trackers: {request_id: {"target|from": name, "status": "pending|..."}}
- * <p>
- * Key insight: "Same request_id correlation pattern, two domains."
+ * Key insight: "The agent finds work itself."
  */
-public class S10TeamProtocols extends Base {
+public class s11AutonomousAgents extends Base {
 
     private static final Path TEAM_DIR = Path.of(WORKDIR, ".team");
+    private static final Path TASKS_DIR = Path.of(WORKDIR, ".tasks");
     private static final Path INBOX_DIR = TEAM_DIR.resolve("inbox");
-    private static final String SYSTEM = "You are a team lead at " + WORKDIR + ". Manage teammates with shutdown and plan approval protocols.";
+    private static final String SYSTEM = "You are a team lead at " + WORKDIR + ". Teammates are autonomous -- they find work themselves.";
+
+
     private static final ObjectMapper OBJECT_MAPPER;
     private static final MessageBus BUS = new MessageBus(INBOX_DIR);
-    private static final TeammateManagerS10 TEAM = new TeammateManagerS10(TEAM_DIR, BUS);
+    private static final TaskManager TASKS = new TaskManager(TASKS_DIR);
+    private static final TeammateManagerS11 TEAM = new TeammateManagerS11(TEAM_DIR, BUS, TASKS);
 
     private static final Map<String, TeammateToolWrapper<?>> TOOL_HANDLERS = new HashMap<>();
     private static final List<ToolUnion> TOOLS = new ArrayList<>();
@@ -101,11 +94,16 @@ public class S10TeamProtocols extends Base {
             }
         }, MessageBus.ReadInboxCommand.class, TEAM));
         TOOL_HANDLERS.put("broadcast", new TeammateToolWrapper<>(BUS::broadcast, MessageBus.BroadcastCommand.class, TEAM));
-        TOOL_HANDLERS.put("spawnTeammate", new TeammateToolWrapper<>(TEAM::spawn, TeammateManagerS10.SpawnCommand.class, TEAM));
+        TOOL_HANDLERS.put("spawnTeammate", new TeammateToolWrapper<>(TEAM::spawn, TeammateManagerS11.SpawnCommand.class, TEAM));
         TOOL_HANDLERS.put("listTeammates", new TeammateToolWrapper<>(_ -> TEAM.listAll(), Object.class, TEAM));
-        TOOL_HANDLERS.put("shutdownRequest", new TeammateToolWrapper<>(TEAM::handleShutdownRequest, TeammateManagerS10.HandleShutdownRequestCommand.class, TEAM));
-        TOOL_HANDLERS.put("shutdownResponse", new TeammateToolWrapper<>(TEAM::checkShutdownStatus, TeammateManagerS10.CheckShutdownStatusCommand.class, TEAM));
-        TOOL_HANDLERS.put("planApproval", new TeammateToolWrapper<>(TEAM::handlePlanReview, TeammateManagerS10.HandlePlanReviewCommand.class, TEAM));
+        TOOL_HANDLERS.put("shutdownRequest", new TeammateToolWrapper<>(TEAM::handleShutdownRequest, TeammateManagerS11.HandleShutdownRequestCommand.class, TEAM));
+        TOOL_HANDLERS.put("shutdownResponse", new TeammateToolWrapper<>(TEAM::checkShutdownStatus, TeammateManagerS11.CheckShutdownStatusCommand.class, TEAM));
+        TOOL_HANDLERS.put("planApproval", new TeammateToolWrapper<>(TEAM::handlePlanReview, TeammateManagerS11.HandlePlanReviewCommand.class, TEAM));
+        TOOL_HANDLERS.put("taskCreate", new TeammateToolWrapper<>(TASKS::create, TaskManager.CreateTaskCommand.class, TEAM));
+        TOOL_HANDLERS.put("taskUpdate", new TeammateToolWrapper<>(TASKS::update, TaskManager.UpdateTaskCommand.class, TEAM));
+        TOOL_HANDLERS.put("taskList", new TeammateToolWrapper<>(_ -> TASKS.listAll(), Object.class, TEAM));
+        TOOL_HANDLERS.put("taskGet", new TeammateToolWrapper<>(TASKS::get, TaskManager.GetTaskCommand.class, TEAM));
+        TOOL_HANDLERS.put("claimTask", new TeammateToolWrapper<>(TASKS::claimTask, TaskManager.ClaimTaskCommand.class, TEAM));
 
         TOOLS.add(ToolUnion.ofTool(
                 Tool.builder().name("bash").description("Run a shell command.")
@@ -245,12 +243,94 @@ public class S10TeamProtocols extends Base {
                                         .build()
                         ).build()
         ));
+
+        TOOLS.add(ToolUnion.ofTool(
+                Tool.builder().name("taskCreate").description("Create a new task.")
+                        .inputSchema(
+                                Tool.InputSchema.builder().type(JsonValue.from("object"))
+                                        .properties(
+                                                Tool.InputSchema.Properties.builder()
+                                                        .putAdditionalProperty("subject", JsonValue.from(Map.of("type", "string")))
+                                                        .putAdditionalProperty("description", JsonValue.from(Map.of("type", "string")))
+                                                        .build()
+                                        )
+                                        .required(List.of("subject"))
+                                        .build()
+                        ).build()
+        ));
+
+        TOOLS.add(ToolUnion.ofTool(
+                Tool.builder().name("taskUpdate").description("Update a task's status or dependencies.")
+                        .inputSchema(
+                                Tool.InputSchema.builder().type(JsonValue.from("object"))
+                                        .properties(
+                                                Tool.InputSchema.Properties.builder()
+                                                        .putAdditionalProperty("taskId", JsonValue.from(Map.of("type", "integer")))
+                                                        .putAdditionalProperty("status", JsonValue.from(Map.of("type", "string",
+                                                                "enum", List.of("pending", "in_progress", "completed"))))
+                                                        .putAdditionalProperty("addBlockedBy", JsonValue.from(Map.of("type", "array", "items", Map.of("type", "integer"))))
+                                                        .putAdditionalProperty("addBlocks", JsonValue.from(Map.of("type", "array", "items", Map.of("type", "integer"))))
+                                                        .build()
+                                        )
+                                        .required(List.of("task_id"))
+                                        .build()
+                        ).build()
+        ));
+
+        TOOLS.add(ToolUnion.ofTool(
+                Tool.builder().name("taskList").description("List all tasks with status summary.")
+                        .inputSchema(
+                                Tool.InputSchema.builder().type(JsonValue.from("object"))
+                                        .properties(
+                                                Tool.InputSchema.Properties.builder().build()
+                                        )
+                                        .build()
+                        ).build()
+        ));
+
+        TOOLS.add(ToolUnion.ofTool(
+                Tool.builder().name("taskGet").description("Get full details of a task by ID.")
+                        .inputSchema(
+                                Tool.InputSchema.builder().type(JsonValue.from("object"))
+                                        .properties(
+                                                Tool.InputSchema.Properties.builder()
+                                                        .putAdditionalProperty("taskId", JsonValue.from(Map.of("type", "integer")))
+                                                        .build()
+                                        )
+                                        .required(List.of("taskId"))
+                                        .build()
+                        ).build()
+        ));
+
+        TOOLS.add(ToolUnion.ofTool(
+                Tool.builder().name("claimTask").description("Claim a task from the task board by ID.")
+                        .inputSchema(
+                                Tool.InputSchema.builder().type(JsonValue.from("object"))
+                                        .properties(
+                                                Tool.InputSchema.Properties.builder()
+                                                        .putAdditionalProperty("taskId", JsonValue.from(Map.of("type", "integer")))
+                                                        .build()
+                                        )
+                                        .required(List.of("taskId"))
+                                        .build()
+                        ).build()
+        ));
     }
 
 
     private static void agentLoop(List<MessageParam> messages) {
         boolean waitResponse = false;
+        boolean hasMemberWorking = false;
         while (true) {
+            if (hasMemberWorking) {
+                try {
+                    TimeUnit.SECONDS.sleep(1);
+                } catch (InterruptedException _) {
+                }
+                hasMemberWorking = TEAM.listAllMembers().stream()
+                        .anyMatch(m -> !m.getStatus().equals("idle") && !m.getStatus().equals("shutdown"));
+                continue;
+            }
             var inbox = BUS.readInbox(new MessageBus.ReadInboxCommand("lead"));
 
             if (null != inbox && !inbox.isEmpty()) {
@@ -280,6 +360,12 @@ public class S10TeamProtocols extends Base {
 
             // If the model didn't call a tool, we're done
             if (!response.stopReason().orElse(StopReason.END_TURN).equals(StopReason.TOOL_USE)) {
+                 hasMemberWorking = TEAM.listAllMembers().stream()
+                        .anyMatch(m -> !m.getStatus().equals("idle") && !m.getStatus().equals("shutdown"));
+                if (hasMemberWorking) {
+                    messages.add(MessageParam.builder().role(MessageParam.Role.USER).content("Please wait for all teammate finished, then give the final result").build());
+                    continue;
+                }
                 return;
             }
 
@@ -323,7 +409,7 @@ public class S10TeamProtocols extends Base {
         while (true) {
             var query = "";
             try {
-                query = IO.readln("\033[36ms10 >> \033[0m").strip();
+                query = IO.readln("\033[36ms11 >> \033[0m").strip();
             } catch (Exception e) {
                 break;
             }
@@ -342,6 +428,11 @@ public class S10TeamProtocols extends Base {
                 }
                 continue;
             }
+            if (query.equalsIgnoreCase("/tasks")) {
+                IO.println(TASKS.listAll());
+                continue;
+            }
+
 
             history.add(MessageParam.builder().role(MessageParam.Role.USER).content(query).build());
             agentLoop(history);
@@ -352,5 +443,4 @@ public class S10TeamProtocols extends Base {
                     .forEach(block -> IO.println(block.text().orElseThrow().text().trim()));
         }
     }
-
 }

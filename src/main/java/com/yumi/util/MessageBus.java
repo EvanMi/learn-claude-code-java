@@ -1,15 +1,19 @@
 package com.yumi.util;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
 import java.io.BufferedWriter;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.time.Instant;
-import java.util.*;
-
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * MessageBus: JSONL inbox per teammate
@@ -17,16 +21,17 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 public class MessageBus {
 
     public static final Set<String> VALID_MSG_TYPES = Set.of(
-        "message",
-        "broadcast", 
-        "shutdown_request",
-        "shutdown_response",
-        "plan_approval_response", "plan_approval_request"
+            "message",
+            "broadcast",
+            "shutdown_request",
+            "shutdown_response",
+            "plan_approval_response",
+            "plan_approval_request"
     );
-    
+
     private final Path dir;
     private final ObjectMapper objectMapper;
-    
+
     public MessageBus(Path inboxDir) {
         this.dir = inboxDir;
         try {
@@ -39,6 +44,7 @@ public class MessageBus {
 
     public interface BusSender {
         String getSender();
+
         void setSender(String sender);
 
     }
@@ -117,14 +123,14 @@ public class MessageBus {
         message.put("from", command.getSender());
         message.put("content", command.getContent());
         message.put("timestamp", Instant.now().toEpochMilli() / 1000);
-        
+
         if (command.getExtra() != null) {
             message.putAll(command.getExtra());
         }
-        
+
         Path inboxPath = dir.resolve(command.getTo() + ".jsonl");
-        
-        try (BufferedWriter writer = Files.newBufferedWriter(inboxPath, 
+
+        try (BufferedWriter writer = Files.newBufferedWriter(inboxPath,
                 StandardOpenOption.CREATE, StandardOpenOption.APPEND)) {
             writer.write(objectMapper.writeValueAsString(message));
             writer.newLine();
@@ -154,38 +160,40 @@ public class MessageBus {
             this.name = sender;
         }
     }
+
     /**
      * Read all messages from a teammate's inbox
      */
     public List<Map<String, Object>> readInbox(ReadInboxCommand command) {
         Path inboxPath = dir.resolve(command.getSender() + ".jsonl");
-        
+
         if (!Files.exists(inboxPath)) {
             return new ArrayList<>();
         }
-        
+
         List<Map<String, Object>> messages = new ArrayList<>();
-        
+
         try {
             List<String> lines = Files.readAllLines(inboxPath);
-            
+
             for (String line : lines) {
                 if (!line.trim().isEmpty()) {
                     try {
-                        var message = objectMapper.readValue(line, new TypeReference<Map<String, Object>>() {});
+                        var message = objectMapper.readValue(line, new TypeReference<Map<String, Object>>() {
+                        });
                         messages.add(message);
                     } catch (Exception e) {
                         System.err.println("Error parsing message: " + e.getMessage());
                     }
                 }
             }
-            
+
             Files.write(inboxPath, new byte[0], StandardOpenOption.TRUNCATE_EXISTING);
-            
+
         } catch (IOException e) {
             System.err.println("Error reading inbox: " + e.getMessage());
         }
-        
+
         return messages;
     }
 
@@ -229,6 +237,7 @@ public class MessageBus {
             this.teammates = teammates;
         }
     }
+
     /**
      * Broadcast a message to all teammates except the sender
      */

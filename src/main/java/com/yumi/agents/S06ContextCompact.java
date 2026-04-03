@@ -187,7 +187,7 @@ public class S06ContextCompact extends Base {
             "readFile", new ToolWrapper<>(PathUtils::runRead, PathUtils.ReadCommand.class),
             "writeFile", new ToolWrapper<>(PathUtils::runWrite, PathUtils.WriteCommand.class),
             "editFile", new ToolWrapper<>(PathUtils::runEdit, PathUtils.EditCommand.class),
-            "compact", new ToolWrapper<>(command -> "Manual compression requested.", CompactCommand.class)
+            "compact", new ToolWrapper<>(_ -> "Manual compression requested.", CompactCommand.class)
     );
 
     private static final List<ToolUnion> TOOLS = List.of(
