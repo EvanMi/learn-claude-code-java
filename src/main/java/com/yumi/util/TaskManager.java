@@ -222,6 +222,50 @@ public class TaskManager {
         return String.format("[SUCCESS] Claimed task #%s for %s", command.taskId(), command.owner());
     }
 
+    public record BindWorktreeCommand(int taskId, String worktree, String owner) {}
+
+    public String bindWorktree(BindWorktreeCommand command) {
+        this.claimLock.lock();
+        try {
+            Task task = load(command.taskId());
+            if (null != command.owner() && null != task.getOwner()) {
+                return String.format("[FAIL] Task already claimed #%s for %s", command.taskId(), task.getOwner());
+            }
+            if (null != command.owner()) {
+                task.setOwner(command.owner());
+            }
+            assert command.worktree() != null;
+            task.setWorktree(command.worktree());
+            if ("pending".equalsIgnoreCase(task.getStatus())) {
+                task.setStatus("in_progress");
+            }
+            task.setUpdatedAt(System.currentTimeMillis());
+            save(task);
+            return this.objectMapper.writeValueAsString(task);
+        } catch (IOException e) {
+            return String.format("[FAIL] Failed to bind task #%s for reason %s", command.taskId(), e.getMessage());
+        } finally {
+            this.claimLock.unlock();
+        }
+    }
+
+    public record UnbindWorktreeCommand(int taskId) {}
+
+    public String unbindWorktree(UnbindWorktreeCommand command) {
+        this.claimLock.lock();
+        try {
+            Task task = load(command.taskId());
+            task.setWorktree("");
+            task.setUpdatedAt(System.currentTimeMillis());
+            save(task);
+            return this.objectMapper.writeValueAsString(task);
+        } catch (IOException e) {
+            return String.format("[FAIL] Failed to bind task #%s for reason %s", command.taskId(), e.getMessage());
+        } finally {
+            this.claimLock.unlock();
+        }
+    }
+
     private static List<String> getLines(List<Task> tasks) {
         List<String> lines = new ArrayList<>();
         lines.add("\n");

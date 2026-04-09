@@ -61,7 +61,7 @@ import java.util.concurrent.TimeUnit;
  * <p>
  * Key insight: "The agent finds work itself."
  */
-public class s11AutonomousAgents extends Base {
+public class S11AutonomousAgents extends Base {
 
     private static final Path TEAM_DIR = Path.of(WORKDIR, ".team");
     private static final Path TASKS_DIR = Path.of(WORKDIR, ".tasks");

@@ -48,7 +48,6 @@ public class S01AgentLoop extends Base {
                     Tool.builder().name("bash").description("Run a shell command.")
                             .inputSchema(
                                     Tool.InputSchema.builder().type(JsonValue.from("object"))
-
                                             .properties(
                                                     Tool.InputSchema.Properties.builder()
                                                             .putAdditionalProperty("command", JsonValue.from(Map.of("type", "string")))
