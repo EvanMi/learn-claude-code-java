@@ -18,6 +18,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -666,17 +667,38 @@ public class TeammateManagerS11 extends Base implements MemberManager {
                 "Use idle tool when you have no more work. You will auto-claim new tasks. \n [IMPORTANT] All Input Message must give a Response", name, role, teamName);
         var messages = new ArrayList<MessageParam>();
         messages.add(MessageParam.builder().role(MessageParam.Role.USER).content(prompt).build());
+        var hasNothingToDo = false;
+        int nothingToDoCnt = 0;
+        var shouldExit = false;
         while (true) {
             // -- WORK PHASE: standard agent loop --
             for (int i = 0; i < 50; i++) {
                 try {
                     var inbox = this.messageBus.readInbox(new MessageBus.ReadInboxCommand(name));
+                    if (hasNothingToDo && (null == inbox || inbox.isEmpty())) {
+                        try {
+                            TimeUnit.SECONDS.sleep(1);
+                        } catch (Exception _) {
+
+                        }
+                        if ((nothingToDoCnt++) > 60) {
+                            break;
+                        }
+                        continue;
+                    }  else {
+                        hasNothingToDo = false;
+                        nothingToDoCnt = 0;
+                    }
                     for (var msg : inbox) {
                         if ("shutdown_request".equals(msg.get("type"))) {
                             this.setStatus(name, "shutdown");
+                            this.messageBus.send(new MessageBus.SendCommand(command.name(), "lead", "Success to shutdown", "shutdown_response", Collections.emptyMap()));
                             return;
                         }
                         messages.add(MessageParam.builder().role(MessageParam.Role.USER).content(objectMapper.writeValueAsString(msg)).build());
+                    }
+                    if (shouldExit) {
+                        break;
                     }
                     var paramsBuilder = MessageCreateParams.builder()
                             .model(MODEL).system(sysPrompt)
@@ -688,7 +710,8 @@ public class TeammateManagerS11 extends Base implements MemberManager {
 
                     // If the model didn't call a tool, we're done
                     if (!response.stopReason().orElse(StopReason.END_TURN).equals(StopReason.TOOL_USE)) {
-                        break;
+                        hasNothingToDo = true;
+                        continue;
                     }
                     List<ContentBlockParam> results = new ArrayList<>();
                     var idleRequested = false;
@@ -713,6 +736,12 @@ public class TeammateManagerS11 extends Base implements MemberManager {
                             );
                             if (toolUseBlock.name().equals("idle")) {
                                 idleRequested = true;
+                            }
+                            if (toolUseBlock.name().equals("shutdownResponse")) {
+                                var shutdownResponse = objectMapper.convertValue(toolUseBlock._input(), TeammateManagerS10.ShutdownResponseCommand.class);
+                                if (shutdownResponse.getApprove()) {
+                                    shouldExit = true;
+                                }
                             }
                         }
                     }

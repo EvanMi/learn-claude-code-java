@@ -59,8 +59,9 @@ import java.util.stream.Collectors;
 public class S06ContextCompact extends Base {
 
     private static final String SYSTEM = "You are a coding agent at " + WORKDIR + ". Use tools to solve tasks.";
-    private static final int THRESHOLD = 50000;
     private static final String TRANSCRIPT_DIR = WORKDIR + File.separator + ".transcripts";
+
+    private static final int THRESHOLD = 50000;
     private static final int KEEP_RECENT = 3;
 
     /**
@@ -180,7 +181,6 @@ public class S06ContextCompact extends Base {
         return messages;
     }
 
-    private record CompactCommand(String focus) {}
 
     private static final Map<String, ToolWrapper<?>> TOOL_HANDLERS = Map.of(
             "bash", new ToolWrapper<>(EnhancedBashExecutor::runBash, EnhancedBashExecutor.BashCommand.class),
