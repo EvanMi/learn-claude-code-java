@@ -111,7 +111,7 @@ public class S06ContextCompact extends Base {
         var toClear = toolResults.subList(0, toolResults.size() - KEEP_RECENT);
         for (ToolResult toolResult : toClear) {
             var result = toolResult.part();
-            if (result.isText() && result.asText().text().length() > 100) {
+            if (result.asToolResult().content().get().toString().length() > 100) {
                 var toolId = result.asToolResult().toolUseId();
                 var toolName = toolNameMap.getOrDefault(toolId, "unknown");
                 var oldMessageParam = messages.get(toolResult.msgIndex());
