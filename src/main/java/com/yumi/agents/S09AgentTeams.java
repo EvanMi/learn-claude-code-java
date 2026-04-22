@@ -66,7 +66,7 @@ import java.util.Map;
  * <p>
  * Key insight: "Teammates that can talk to each other."
  */
-public class s09AgentTeams extends Base {
+public class S09AgentTeams extends Base {
 
     private static final Path TEAM_DIR = Path.of(WORKDIR, ".team");
     private static final Path INBOX_DIR = TEAM_DIR.resolve("inbox");
