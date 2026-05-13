@@ -255,7 +255,7 @@ public class S10TeamProtocols extends Base {
 
             if (null != inbox && !inbox.isEmpty()) {
                 try {
-                    messages.addLast(MessageParam.builder().role(MessageParam.Role.USER).content(String.format("<inbox>" + OBJECT_MAPPER.writeValueAsString(inbox) + "</inbox>")).build());
+                    messages.addLast(MessageParam.builder().role(MessageParam.Role.USER).content("<inbox>" + OBJECT_MAPPER.writeValueAsString(inbox) + "</inbox>").build());
                     messages.addLast(MessageParam.builder().role(MessageParam.Role.ASSISTANT).content("Noted inbox messages.").build());
                 } catch (JsonProcessingException e) {
                     throw new RuntimeException(e);

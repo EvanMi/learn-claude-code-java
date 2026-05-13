@@ -24,6 +24,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -44,6 +45,7 @@ public class TeammateManagerS10 extends Base implements MemberManager {
     private final Lock lock = new ReentrantLock();
     private final Map<String, ShutdownRequest> shutdownRequests = new HashMap<>();
     private final Map<String, PlanReview> planRequests = new HashMap<>();
+    private final Map<String, CountDownLatch> planCountDownLatches = new HashMap<>();
 
     private static final List<ToolUnion> TOOLS = List.of(
             ToolUnion.ofTool(
@@ -285,7 +287,7 @@ public class TeammateManagerS10 extends Base implements MemberManager {
 
     public void teammateLoop(SpawnCommand command) {
 
-        var sysPrompt = String.format("You are '%s', role: %s, at %s. \nSubmit plans via plan_approval before major work. \nRespond to shutdown_request with shutdown_response.",
+        var sysPrompt = String.format("You are '%s', role: %s, at %s. \nSubmit plans via plan_approval before major work, shutdown when plan is rejected. \nRespond to shutdown_request with shutdown_response.",
                 command.name(), command.role(), WORKDIR);
         var messages = new ArrayList<MessageParam>();
         messages.add(MessageParam.builder().role(MessageParam.Role.USER).content(command.prompt()).build());
@@ -516,6 +518,7 @@ public class TeammateManagerS10 extends Base implements MemberManager {
                     "lead", req.getFrom(), feedback, "plan_approval_response",
                     Map.of("request_id", command.requestId(), "approve", command.approve(), "feedback", feedback)
             ));
+            this.planCountDownLatches.get(command.requestId()).countDown();
             return String.format("Plan %s for '%s'", req.getStatus(), req.getFrom());
         } finally {
             this.lock.unlock();
@@ -565,7 +568,7 @@ public class TeammateManagerS10 extends Base implements MemberManager {
     public String checkShutdownStatus(CheckShutdownStatusCommand command) {
         this.lock.lock();
         try {
-            ShutdownRequest shutdownRequest = shutdownRequests.get(command.requestId());
+            ShutdownRequest shutdownRequest = shutdownRequests.remove(command.requestId());
             if (null == shutdownRequest) {
                 return "{\"error\": \"not found\"}";
             }
@@ -629,6 +632,7 @@ public class TeammateManagerS10 extends Base implements MemberManager {
     public String planApproval(PlanApprovalCommand command) {
         var planText = null == command.getPlan() ? "" : command.getPlan();
         var requestId = UUID.randomUUID().toString().substring(0, 8);
+        var countDownLatch = new CountDownLatch(1);
         this.lock.lock();
         try {
             this.planRequests.put(requestId, new PlanReview(command.getSender(), planText, "pending"));
@@ -637,9 +641,24 @@ public class TeammateManagerS10 extends Base implements MemberManager {
                             "request_id", requestId,"plan", planText
             )
             ));
+
+            this.planCountDownLatches.put(requestId, countDownLatch);
         } finally {
             this.lock.unlock();
         }
-        return String.format("Plan submitted (request_id=%s). Waiting for lead approval.", requestId);
+        try {
+            var success = countDownLatch.await(60, TimeUnit.SECONDS);
+            if (!success) {
+                this.planRequests.remove(requestId);
+                return "Plan approval timed out.";
+            }
+        } catch (InterruptedException e) {
+            throw new RuntimeException(e);
+        }
+        PlanReview planReview = this.planRequests.remove(requestId);
+        if (planReview.getStatus().equals("approved")) {
+            return "Plan (request_id=%s) approved. Please Continue to work.";
+        }
+        return String.format("Plan (request_id=%s) rejected. Shutdown yourself.", requestId);
     }
 }

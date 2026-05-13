@@ -25,6 +25,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -48,6 +49,7 @@ public class TeammateManagerS11 extends Base implements MemberManager {
     private final Lock lock = new ReentrantLock();
     private final Map<String, ShutdownRequest> shutdownRequests = new HashMap<>();
     private final Map<String, PlanReview> planRequests = new HashMap<>();
+    private final Map<String, CountDownLatch> planCountDownLatches = new HashMap<>();
 
     private static final List<ToolUnion> TOOLS = new ArrayList<>();
 
@@ -643,18 +645,34 @@ public class TeammateManagerS11 extends Base implements MemberManager {
     public String planApproval(PlanApprovalCommand command) {
         var planText = null == command.getPlan() ? "" : command.getPlan();
         var requestId = UUID.randomUUID().toString().substring(0, 8);
+        var countDownLatch = new CountDownLatch(1);
         this.lock.lock();
         try {
             this.planRequests.put(requestId, new PlanReview(command.getSender(), planText, "pending"));
             this.messageBus.send(new MessageBus.SendCommand(
                     command.getSender(), "lead", planText, "plan_approval_request", Map.of(
-                    "request_id", requestId, "plan", planText
+                    "request_id", requestId,"plan", planText
             )
             ));
+
+            this.planCountDownLatches.put(requestId, countDownLatch);
         } finally {
             this.lock.unlock();
         }
-        return String.format("Plan submitted (request_id=%s). Waiting for lead approval.", requestId);
+        try {
+            var success = countDownLatch.await(60, TimeUnit.SECONDS);
+            if (!success) {
+                this.planRequests.remove(requestId);
+                return "Plan approval timed out.";
+            }
+        } catch (InterruptedException e) {
+            throw new RuntimeException(e);
+        }
+        PlanReview planReview = this.planRequests.remove(requestId);
+        if (planReview.getStatus().equals("approved")) {
+            return "Plan (request_id=%s) approved. Please Continue to work.";
+        }
+        return String.format("Plan (request_id=%s) rejected. Shutdown yourself.", requestId);
     }
 
     private void teammateLoop(SpawnCommand command) {
